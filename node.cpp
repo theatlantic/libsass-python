@@ -1,6 +1,7 @@
 #include <sstream>
 #include "node.hpp"
 #include "error.hpp"
+#include <set>
 
 namespace Sass {
   using namespace std;
@@ -74,6 +75,27 @@ namespace Sass {
       
       case boolean: {
         return boolean_value() == rhs.boolean_value();
+      } break;
+
+      // -------------------------------------------------------
+      // SELECTOR EQUALITY -- essential for selector inheritance
+      // -------------------------------------------------------
+
+      case simple_selector:
+      case selector_combinator:
+      case pseudo: {
+        return token() == rhs.token();
+      } break;
+
+      case simple_selector_sequence: {
+        if (size() != rhs.size()) return false;
+        // TO DO: normalization here for classes/ids, attrs, etc.
+        // probably put the qualifiers into sets and compare them
+        for (size_t i = 0, S = size(); i < S; ++i) {
+          if (at(i) == rhs[i]) continue;
+          else                 return false;
+        }
+        return true;
       } break;
       
       default: {
