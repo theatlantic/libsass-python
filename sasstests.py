@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import with_statement
 
+import base64
 import contextlib
 import glob
 import json
@@ -62,6 +63,13 @@ A_EXPECTED_MAP = {
         'CAAC,CAAC;IACA,KAAK,EAAE,IAAI,GACZ'
     ),
 }
+
+with open('test/a.scss') as f:
+    A_EXPECTED_MAP_CONTENTS = dict(
+        A_EXPECTED_MAP, **{
+            'sourcesContent': [f.read()],
+        }
+    )
 
 B_EXPECTED_CSS = '''\
 b i {
@@ -126,6 +134,10 @@ body p {
 '''
 
 
+re_sourcemap_url = re.compile(r'/\*# sourceMappingURL=([^\s]+?) \*/')
+re_base64_data_uri = re.compile(r'^data:[^;]*?;base64,(.+)$')
+
+
 @pytest.fixture(autouse=True)
 def no_warnings(recwarn):
     yield
@@ -150,6 +162,16 @@ class BaseTestCase(unittest.TestCase):
                 msg = '{!s}\n\n{}:\n\n{}'.format(e, filename, f.read())
                 raise ValueError(msg)
         self.assert_source_map_equal(expected, tree)
+
+    def assert_source_map_embed(self, expected, src):
+        url_matches = re_sourcemap_url.search(src)
+        assert url_matches is not None
+        embed_url = url_matches.group(1)
+        b64_matches = re_base64_data_uri.match(embed_url)
+        assert b64_matches is not None
+        decoded = base64.b64decode(b64_matches.group(1)).decode('utf-8')
+        actual = json.loads(decoded)
+        self.assert_source_map_equal(expected, actual)
 
 
 class SassTestCase(BaseTestCase):
@@ -454,6 +476,46 @@ a {
         )
         assert A_EXPECTED_CSS_WITH_MAP == actual
         self.assert_source_map_equal(A_EXPECTED_MAP, source_map)
+
+    def test_compile_source_map_root(self):
+        filename = 'test/a.scss'
+        actual, source_map = sass.compile(
+            filename=filename,
+            source_map_filename='a.scss.css.map',
+            source_map_root='/',
+        )
+        assert A_EXPECTED_CSS_WITH_MAP == actual
+        expected = dict(A_EXPECTED_MAP, sourceRoot='/')
+        self.assert_source_map_equal(expected, source_map)
+
+    def test_compile_source_map_omit_source_url(self):
+        filename = 'test/a.scss'
+        actual, source_map = sass.compile(
+            filename=filename,
+            source_map_filename='a.scss.css.map',
+            omit_source_map_url=True,
+        )
+        assert A_EXPECTED_CSS == actual
+        self.assert_source_map_equal(A_EXPECTED_MAP, source_map)
+
+    def test_compile_source_map_source_map_contents(self):
+        filename = 'test/a.scss'
+        actual, source_map = sass.compile(
+            filename=filename,
+            source_map_filename='a.scss.css.map',
+            source_map_contents=True,
+        )
+        assert A_EXPECTED_CSS_WITH_MAP == actual
+        self.assert_source_map_equal(A_EXPECTED_MAP_CONTENTS, source_map)
+
+    def test_compile_source_map_embed(self):
+        filename = 'test/a.scss'
+        actual, source_map = sass.compile(
+            filename=filename,
+            source_map_filename='a.scss.css.map',
+            source_map_embed=True,
+        )
+        self.assert_source_map_embed(A_EXPECTED_MAP, actual)
 
     def test_compile_source_map_deprecated_source_comments_map(self):
         filename = 'test/a.scss'
